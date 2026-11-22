@@ -6,7 +6,7 @@
 pub const TOKEN: &str = "";
 
 /// Discord User ID ของแอดมิน (ใส่ได้หลายคน)
-pub const ADMIN_IDS: &[&str] = &["745535330681225278"];
+pub const ADMIN_IDS: &[&str] = &[""];
 
 /// จำนวน Telegram session สูงสุดพร้อมกัน
 pub const MAX_USERS: usize = 50;
