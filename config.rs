@@ -27,7 +27,7 @@ pub const COOLDOWN_MAX_MS: u64 = 300_000;
 pub const CLEAR_SCANNED_INTERVAL_MS: u64 = 3_600_000;
 
 /// prefix โค้ดซอง TrueMoney
-pub const VOUCHER_CODE_PREFIX: &str = "019";
+pub const VOUCHER_CODE_PREFIX: &str = "01a";
 
 /// ความยาวขั้นต่ำของโค้ดซอง TrueMoney
-pub const VOUCHER_CODE_MIN_LEN: usize = 23;
+pub const VOUCHER_CODE_MIN_LEN: usize = 35;
