@@ -3,7 +3,7 @@
 // ============================================================
 
 /// โทเค่น Discord Bot (จาก Discord Developer Portal)
-pub const TOKEN: &str = "MTQ2Njg3NzU1NzA3MTk0MTY0NA.Gw6X5M.BAt3YQu5ifDEiGGi22jTWILFJj8U29jMsswOW0";
+pub const TOKEN: &str = "";
 
 /// Discord User ID ของแอดมิน (ใส่ได้หลายคน)
 pub const ADMIN_IDS: &[&str] = &["745535330681225278"];
