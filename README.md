@@ -5,23 +5,28 @@
 
 ---
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:c782a0fbd10ae08f176c74bc341e199600bf62001607b32e5c4ed610822a658a -->
+
 ## 📁 โครงสร้างไฟล์
 
 ```
-DigtgAI_rust/
-├── Cargo.toml          ← dependency ทั้งหมด
-├── setup.bat           ← ติดตั้ง Rust + build ครั้งแรก
-├── start_bot.bat       ← รันบอท
-├── README.md           ← เอกสารนี้
+├── Cargo.toml, Cargo.lock  ← dependencies และเวอร์ชันที่ใช้ build
+├── README.md
 └── src/
-    ├── main.rs         ← Discord Bot, slash commands, event handler
-    ├── config.rs       ← ✏️ ตั้งค่าที่นี่ (TOKEN, ADMIN_IDS ฯลฯ)
-    ├── database.rs     ← JSON file database + memory cache
-    ├── group_finder.rs ← Telegram group scanner + webhook
-    └── server.rs       ← HTTP API (axum) port 8080
+    ├── main.rs         ← Discord Bot และ slash commands
+    ├── config.rs       ← ตั้งค่า TOKEN, ADMIN_IDS และการค้นหา
+    ├── database.rs     ← JSON database และ cache
+    ├── group_finder.rs ← ค้นหากลุ่ม สแกนข้อความ และ webhook
+    └── server.rs       ← HTTP API port 8080
 ```
 
 ---
+
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## ⚙️ ตั้งค่า
 
@@ -32,46 +37,50 @@ pub const TOKEN: &str = "YOUR_DISCORD_BOT_TOKEN";
 pub const ADMIN_IDS: &[&str] = &["YOUR_DISCORD_USER_ID"];
 ```
 
-ปรับค่าอื่น ๆ ตามต้องการ:
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:ad0be656cb26f6930a35bac10cd958af5975aff4e81513c3b846d534f6d09542 -->
+
+ปรับค่าอื่น ๆ ใน `src/config.rs` ตามต้องการ:
+
 | ค่า | ค่าเริ่มต้น | คำอธิบาย |
 |-----|-----------|---------|
-| `MAX_USERS` | 100 | จำนวนผู้ใช้พร้อมกันสูงสุด |
-| `SCAN_LIMIT` | 500 | ข้อความสูงสุดต่อกลุ่ม |
+| `SEARCH_KEYWORDS` | แจกฟรี, ทรูวอเลต, แจกซอง | คำค้นหากลุ่มและข้อความ |
+| `SEARCH_LIMIT` | 50 | ผลลัพธ์สูงสุดต่อคำค้นในแต่ละวิธีค้นหา |
+| `SEARCH_INTERVAL_SECS` | 3600 | ระยะห่างระหว่างรอบค้นหาเป็นวินาที |
+| `MAX_USERS` | 50 | จำนวนผู้ใช้พร้อมกันสูงสุด |
+| `SCAN_LIMIT` | 2000 | ข้อความสูงสุดต่อกลุ่ม |
 | `MEMORY_LIMIT_MB` | 512 | RAM สูงสุดก่อน restart |
-| `COOLDOWN_MIN_MS` | 180000 | หน่วงขั้นต่ำระหว่างเข้ากลุ่ม (3 นาที) |
-| `COOLDOWN_MAX_MS` | 300000 | หน่วงสูงสุดระหว่างเข้ากลุ่ม (5 นาที) |
-| `CLEAR_SCANNED_INTERVAL_MS` | 3600000 | รีเซ็ต scanned list ทุก 1 ชั่วโมง |
+| `COOLDOWN_MIN_MS` / `COOLDOWN_MAX_MS` | 180000 / 300000 | หน่วงหลังเข้ากลุ่มสำเร็จ 3–5 นาที |
+| `CLEAR_SCANNED_INTERVAL_MS` | 3600000 | รีเซ็ตรายชื่อกลุ่มที่สแกนทุกชั่วโมง |
+
+ระบบค้นหากลุ่มและช่องสาธารณะจากไดเรกทอรี Telegram และค้นหาข้อความที่บัญชีมองเห็นด้วยคีย์เวิร์ด จากนั้นตรวจลิงก์ `t.me` ในข้อความและกลุ่มที่บัญชีเข้าร่วมแล้ว รวมถึงลิงก์ที่ซ่อนอยู่ในข้อความ ลิงก์ที่พบจะถูกนำไปลองเข้ากลุ่มหรือช่องอัตโนมัติ แล้วสแกนซองและแจ้งผ่าน webhook ผลการค้นหาขึ้นอยู่กับสิทธิ์บัญชีและผลลัพธ์ที่ Telegram ส่งกลับ
 
 ---
 
 ## 🚀 ติดตั้งและรัน
 
-### Windows
-```
-1. รัน setup.bat  (ติดตั้ง Rust + build)
-2. รัน start_bot.bat
-```
+ติดตั้ง Rust แบบ stable ด้วย [rustup](https://rustup.rs/) แล้วตั้งค่าใน `src/config.rs` จากนั้นรัน:
 
-### Linux / VPS
 ```bash
-# ติดตั้ง Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
-
-# Build
-cargo build --release
-
-# รัน
+cargo build --release --locked
 ./target/release/digtg_ai
 ```
 
+Windows สามารถใช้ `cargo build --release --locked` และรัน `target\release\digtg_ai.exe` ได้เช่นกัน
+
 ### PM2 (VPS)
+
 ```bash
 pm2 start ./target/release/digtg_ai --name digtg_ai
 pm2 save
 ```
 
 ---
+
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## 🛠️ Slash Commands (Admin)
 

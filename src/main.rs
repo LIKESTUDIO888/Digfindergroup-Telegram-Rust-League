@@ -124,9 +124,14 @@ async fn start_telegram_otp(data: BotData, uid: String, code: String) -> Result<
 
 async fn finder_loop(data: BotData, uid: String, client: TgClient) {
     println!("[Finder] 🚀 เริ่มทำงาน USER: {uid}");
+    let mut next_search = Instant::now();
     while data.tg_clients.contains_key(&uid) {
         if let Some(ud) = database::get_user_data(&uid).await {
-            group_finder::find_and_scan(&client, &uid, &ud).await;
+            let discover = Instant::now() >= next_search;
+            if discover {
+                next_search = Instant::now() + Duration::from_secs(config::SEARCH_INTERVAL_SECS);
+            }
+            group_finder::find_and_scan(&client, &uid, &ud, discover).await;
         } else {
             break;
         }
@@ -393,7 +398,7 @@ fn main_embed() -> CreateEmbed {
         CreateEmbed::default()
             .title("⛏️ Auto Telegram Group Finder")
             .description("**ระบบหากลุ่ม Telegram + สแกนซอง TrueMoney**\n\
-                 • เข้าทุกกลุ่มที่พบลิงก์อัตโนมัติ\n\
+                 • ค้นหากลุ่มด้วยคีย์เวิร์ดและลิงก์ t.me อัตโนมัติ\n\
                  • สแกนหาซอง TrueMoney ทุกกลุ่ม\n\
                  • แจ้งเตือนผ่าน Webhook ทันที | 24/7")
             .color(0xFF0000_u32)

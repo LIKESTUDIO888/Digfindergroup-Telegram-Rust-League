@@ -3,7 +3,7 @@
 // ============================================================
 
 use chrono::Utc;
-use grammers_client::{types::Chat, Client};
+use grammers_client::{types::{Chat, Message}, Client};
 use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
@@ -15,7 +15,7 @@ use tokio::time::{sleep, Duration};
 use crate::{config, database as db};
 
 static RE_GROUP_LINK: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"t\.me/[a-zA-Z0-9_+]+").unwrap());
+    Lazy::new(|| Regex::new(r"(?i)t\.me/(\+[a-z0-9_-]+|joinchat/[a-z0-9_-]+|[a-z][a-z0-9_]{4,31})").unwrap());
 
 static RE_VOUCHER_URL: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"https?://gift\.truemoney\.com/campaign[^\s]*[?&]v=([A-Za-z0-9]+)").unwrap()
@@ -43,13 +43,43 @@ fn now_iso() -> String {
 
 pub fn extract_group_links(text: &str) -> Vec<String> {
     let mut seen = HashSet::new();
-    RE_GROUP_LINK
-        .find_iter(text)
-        .filter_map(|m| {
-            let s = m.as_str().to_string();
-            if seen.insert(s.clone()) { Some(s) } else { None }
-        })
-        .collect()
+    RE_GROUP_LINK.captures_iter(text).filter_map(|cap| {
+        let m = cap.get(0).unwrap();
+        // Reject matches embedded in another hostname or username.
+        if text[..m.start()].chars().next_back().is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '@')) {
+            return None;
+        }
+        if text[m.end()..].chars().next().is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '+')) {
+            return None;
+        }
+        let target = &cap[1];
+        let link = if let Some(hash) = target.strip_prefix('+') {
+            format!("t.me/+{hash}")
+        } else if target.len() > 9 && target[..9].eq_ignore_ascii_case("joinchat/") {
+            format!("t.me/+{}", &target[9..])
+        } else {
+            let username = target.to_ascii_lowercase();
+            if matches!(username.as_str(), "share" | "addstickers" | "addemoji" | "proxy" | "socks" | "login" | "invoice" | "confirmphone" | "setlanguage" | "boost" | "joinchat") {
+                return None;
+            }
+            format!("t.me/{username}")
+        };
+        if seen.insert(link.clone()) { Some(link) } else { None }
+    }).collect()
+}
+
+fn message_links(message: &Message) -> Vec<String> {
+    let mut links = extract_group_links(message.text());
+    if let Some(entities) = &message.raw.entities {
+        for entity in entities {
+            if let grammers_tl_types::enums::MessageEntity::TextUrl(url) = entity {
+                for link in extract_group_links(&url.url) {
+                    if !links.contains(&link) { links.push(link); }
+                }
+            }
+        }
+    }
+    links
 }
 
 fn is_valid_voucher(code: &str) -> bool {
@@ -144,11 +174,10 @@ pub async fn join_group(client: &Client, link: &str) -> bool {
             client.invoke(&grammers_tl_types::functions::messages::ImportChatInvite {
                 hash: hash.to_string(),}).await?;
         } else {
-            if let Some(chat) = client.resolve_username(&clean).await? {
-                match &chat {
-                    Chat::Group(_) | Chat::Channel(_) => { client.join_chat(&chat).await?; }
-                    _ => {}
-                }
+            match client.resolve_username(&clean).await? {
+                Some(chat @ Chat::Channel(_)) => { client.join_chat(&chat).await?; }
+                Some(chat @ Chat::Group(_)) if matches!(&chat, Chat::Group(group) if group.is_megagroup()) => { client.join_chat(&chat).await?; }
+                _ => anyhow::bail!("ไม่พบกลุ่มหรือช่อง"),
             }
         }
         Ok(())
@@ -159,13 +188,62 @@ pub async fn join_group(client: &Client, link: &str) -> bool {
     }
 }
 
+/// Search Telegram's public chat directory and the messages visible to this account.
+async fn discover_groups(client: &Client, known_ids: &HashSet<i64>) -> Vec<String> {
+    use grammers_tl_types as tl;
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+    for keyword in config::SEARCH_KEYWORDS {
+        match client.invoke(&tl::functions::contacts::Search {
+            q: (*keyword).to_string(), limit: config::SEARCH_LIMIT as i32,
+        }).await {
+            Ok(tl::enums::contacts::Found::Found(found)) => {
+                for chat in found.chats {
+                    if let tl::enums::Chat::Channel(channel) = chat {
+                        if !known_ids.contains(&channel.id) {
+                            if let Some(username) = channel.username {
+                                let link = format!("t.me/{}", username.to_ascii_lowercase());
+                                if seen.insert(link.clone()) { candidates.push(link); }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => println!("[Finder] ค้นหากลุ่ม '{keyword}' ไม่สำเร็จ: {e}"),
+        }
+
+        let mut messages = client.search_all_messages().query(keyword).limit(config::SEARCH_LIMIT);
+        loop {
+            match messages.next().await {
+                Ok(Some(message)) => {
+                    let chat = message.chat();
+                    if !matches!(chat, Chat::Group(_) | Chat::Channel(_)) { continue; }
+                    if !known_ids.contains(&chat.id()) {
+                        if let Some(username) = chat.username() {
+                            let link = format!("t.me/{}", username.to_ascii_lowercase());
+                            if seen.insert(link.clone()) { candidates.push(link); }
+                        }
+                    }
+                    for link in message_links(&message) {
+                        if seen.insert(link.clone()) { candidates.push(link); }
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => { println!("[Finder] ค้นหาข้อความ '{keyword}' ไม่สำเร็จ: {e}"); break; }
+            }
+        }
+    }
+    println!("[Finder] 🔍 พบ {} ลิงก์จากคีย์เวิร์ด", candidates.len());
+    candidates
+}
+
 pub struct ScanResult {
     pub success:       bool,
     pub joined_count:  usize,
     pub voucher_count: usize,
 }
 
-pub async fn find_and_scan(client: &Client, user_id: &str, user_data: &db::UserData) -> ScanResult {
+pub async fn find_and_scan(client: &Client, user_id: &str, user_data: &db::UserData, discover: bool) -> ScanResult {
     println!("[Finder] 🔍 เริ่มรอบสแกน (USER: {})", user_id);
     let mut joined_count  = 0usize;
     let mut voucher_count = 0usize;
@@ -184,6 +262,22 @@ pub async fn find_and_scan(client: &Client, user_id: &str, user_data: &db::UserD
     }
     println!("[Finder] 📋 พบ {} กลุ่ม/ช่อง", dialogs.len());
 
+    if discover {
+        let known_ids: HashSet<_> = dialogs.iter().map(|d| d.chat().id()).collect();
+        let candidates = discover_groups(client, &known_ids).await;
+        for link in &candidates {
+            if db::get_joined_groups(user_id).await.joined.contains(link) { continue; }
+            if join_group(client, link).await {
+                db::add_joined_group(user_id, link).await;
+                joined_count += 1;
+                if !user_data.webhook.is_empty() {
+                    notify_joined(&user_data.webhook, "ผลการค้นหาคีย์เวิร์ด", link, &candidates).await;
+                }
+                sleep_ms(random_delay(config::COOLDOWN_MIN_MS, config::COOLDOWN_MAX_MS)).await;
+            }
+        }
+    }
+
     for dialog in &dialogs {
         let chat       = dialog.chat();
         let group_id   = chat.id().to_string();
@@ -193,10 +287,12 @@ pub async fn find_and_scan(client: &Client, user_id: &str, user_data: &db::UserD
         if jd.scanned.contains(&group_id) { continue; }
 
         let mut parts = Vec::new();
+        let mut hidden_links = Vec::new();
         let mut mit   = client.iter_messages(chat).limit(config::SCAN_LIMIT as usize);
         loop {
             match mit.next().await {
                 Ok(Some(msg)) => {
+                    hidden_links.extend(message_links(&msg));
                     let t = msg.text();
                     if !t.is_empty() { parts.push(t.to_string()); }
                 }
@@ -205,7 +301,10 @@ pub async fn find_and_scan(client: &Client, user_id: &str, user_data: &db::UserD
             }
         }
         let all_text = parts.join("\n");
-        let links    = extract_group_links(&all_text);
+        let mut links = extract_group_links(&all_text);
+        for link in hidden_links {
+            if !links.contains(&link) { links.push(link); }
+        }
         let vouchers = extract_vouchers(&all_text);
 
         db::add_scanned_group(user_id, &group_id).await;
@@ -234,4 +333,23 @@ pub async fn find_and_scan(client: &Client, user_id: &str, user_data: &db::UserD
 
     println!("[Finder] ✅ เสร็จ  | เข้ากลุ่ม: {joined_count}  | ซองที่พบ: {voucher_count}");
     ScanResult { success: true, joined_count, voucher_count }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_group_links;
+
+    #[test]
+    fn finds_and_normalizes_public_and_invite_links() {
+        assert_eq!(
+            extract_group_links("แจกฟรี https://t.me/Example_Group/123 t.me/example_group T.ME/+Ab_C-9 https://t.me/joinchat/Ab_C-9"),
+            vec!["t.me/example_group", "t.me/+Ab_C-9"]
+        );
+    }
+
+    #[test]
+    fn ignores_non_telegram_hosts_and_non_chat_routes() {
+        assert_eq!(extract_group_links("evil.t.me/example_group nott.me/example_group t.me/share/url t.me/addstickers/test"), Vec::<String>::new());
+        assert!(extract_group_links("t.me/abcdefghijklmnopqrstuvwxyzabcdefghi").is_empty());
+    }
 }

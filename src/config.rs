@@ -31,3 +31,10 @@ pub const VOUCHER_CODE_PREFIX: &str = "01a";
 
 /// ความยาวขั้นต่ำของโค้ดซอง TrueMoney
 pub const VOUCHER_CODE_MIN_LEN: usize = 35;
+
+/// คำค้นสำหรับกลุ่มและข้อความ Telegram
+pub const SEARCH_KEYWORDS: &[&str] = &["แจกฟรี", "ทรูวอเลต", "แจกซอง"];
+
+/// จำกัดผลการค้นหาต่อคำและเว้นระยะระหว่างรอบค้นหา
+pub const SEARCH_LIMIT: usize = 50;
+pub const SEARCH_INTERVAL_SECS: u64 = 3_600;

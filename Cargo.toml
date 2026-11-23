@@ -28,6 +28,3 @@ anyhow = "1"
 sysinfo = "0.31"
 base64 = "0.22"
 once_cell = "1"
-
-[patch.crates-io]
-core2 = { git = "https://github.com/technocreatives/core2.git" }
